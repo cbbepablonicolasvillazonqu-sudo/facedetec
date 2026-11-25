@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Solo dependencias ligeras: los módulos importan deepface dentro de las funciones,
+      # así los tests no necesitan TensorFlow.
+      - run: pip install opencv-python-headless numpy pandas pytest
+      - name: pytest (código 5 = aún no hay tests)
+        run: pytest -q || [ $? -eq 5 ]

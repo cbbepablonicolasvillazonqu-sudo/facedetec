@@ -1,0 +1,15 @@
+# Entorno
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.vscode/
+.idea/
+
+# Datos personales de asistentes (NO subir: fotos y datos biométricos)
+data/asistentes.csv
+fotos_registrados/*
+!fotos_registrados/.gitkeep
+embeddings_cache.pkl
+*.pkl
