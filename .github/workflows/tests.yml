@@ -15,6 +15,6 @@ jobs:
           python-version: "3.12"
       # Solo dependencias ligeras: los módulos importan deepface dentro de las funciones,
       # así los tests no necesitan TensorFlow.
-      - run: pip install opencv-python-headless numpy pandas pytest
+      - run: pip install opencv-python-headless numpy pandas pillow pytest
       - name: pytest (código 5 = aún no hay tests)
         run: pytest -q || [ $? -eq 5 ]
