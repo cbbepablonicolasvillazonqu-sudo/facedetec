@@ -16,3 +16,4 @@ embeddings_cache.pkl
 
 # Logs locales
 *.log
+.wheels/
