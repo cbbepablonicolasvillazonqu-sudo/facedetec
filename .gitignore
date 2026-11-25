@@ -13,3 +13,6 @@ fotos_registrados/*
 !fotos_registrados/.gitkeep
 embeddings_cache.pkl
 *.pkl
+
+# Logs locales
+*.log
