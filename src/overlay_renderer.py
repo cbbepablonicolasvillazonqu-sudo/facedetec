@@ -1,85 +1,149 @@
-"""Dibuja detecciones y estado de conexión sobre frames BGR."""
-import os
-from typing import Any, Dict, List, Optional
+"""Dibujo de recuadros, nombre, profesión y FPS sobre el frame. Responsable: Nicolas.
+
+cv2.putText no soporta tildes ni ñ, así que los textos se dibujan con Pillow y una
+fuente TrueType. Si no hay fuente disponible se usa cv2 quitando los acentos.
+"""
+import unicodedata
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
 
-
-def _texto_unicode(frame: np.ndarray, texto: str, origen: tuple, escala: float, color: tuple, grosor: int) -> None:
-    """Renderiza con Pillow para conservar tildes y caracteres Unicode."""
+try:
     from PIL import Image, ImageDraw, ImageFont
+except ImportError:  # pragma: no cover
+    Image = ImageDraw = ImageFont = None
 
-    candidatos = [
-        os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "arial.ttf"),
-        "DejaVuSans.ttf",
-    ]
-    fuente = None
-    tamano = max(12, int(22 * escala))
-    for ruta in candidatos:
+# Colores en BGR
+COLOR_RECONOCIDO = (80, 200, 0)
+COLOR_INVITADO = (0, 165, 255)
+COLOR_FONDO = (20, 20, 20)
+COLOR_NOMBRE = (255, 255, 255)
+COLOR_PROFESION = (255, 235, 130)
+OPACIDAD_FONDO = 0.75
+
+FUENTES = (
+    "arialbd.ttf",
+    "arial.ttf",
+    "segoeui.ttf",
+    "DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+)
+
+Texto = Tuple[str, Tuple[int, int], int, Tuple[int, int, int]]  # (texto, (x, y_sup), tam_px, color_bgr)
+
+
+@lru_cache(maxsize=32)
+def _fuente(tam_px: int) -> Optional[Any]:
+    if ImageFont is None:
+        return None
+    for nombre in FUENTES:
         try:
-            fuente = ImageFont.truetype(ruta, tamano)
-            break
+            return ImageFont.truetype(nombre, tam_px)
         except OSError:
             continue
-    if fuente is None:
-        fuente = ImageFont.load_default()
-    imagen = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    dibujo = ImageDraw.Draw(imagen)
-    dibujo.text(origen, texto, font=fuente, fill=(int(color[2]), int(color[1]), int(color[0])))
-    frame[:] = cv2.cvtColor(np.asarray(imagen), cv2.COLOR_RGB2BGR)
+    return None
 
 
-def dibujar_overlay(
-    frame_bgr: np.ndarray,
-    detecciones: List[Dict[str, Any]],
-    fps: float,
-    estado: Optional[str] = None,
-) -> np.ndarray:
-    """Dibuja recuadros, etiquetas, FPS y opcionalmente un estado de desconexión."""
-    salida = frame_bgr.copy()
-    alto, ancho = salida.shape[:2]
-    escala = max(0.55, min(1.2, ancho / 1000.0))
-    grosor = max(2, round(2 * escala))
-    desconocido = "Invitado / No registrado"
+def _sin_acentos(texto: str) -> str:
+    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
 
-    for deteccion in detecciones or []:
-        try:
-            x, y, w, h = (int(v) for v in deteccion["box"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        x0, y0 = max(0, x), max(0, y)
-        x1, y1 = min(ancho - 1, x + w), min(alto - 1, y + h)
-        if x1 <= x0 or y1 <= y0:
-            continue
-        reconocido = bool(deteccion.get("reconocido", False))
-        color = (45, 190, 65) if reconocido else (0, 145, 255)
-        cv2.rectangle(salida, (x0, y0), (x1, y1), color, grosor)
-        nombre = str(deteccion.get("nombre") or desconocido)
-        profesion = str(deteccion.get("profesion") or "")
-        etiqueta = nombre if not profesion else f"{nombre} · {profesion}"
-        max_chars = max(18, int(ancho / (13 * escala)))
-        if len(etiqueta) > max_chars:
-            etiqueta = etiqueta[: max_chars - 1] + "…"
-        texto_y = max(0, y0 - int(34 * escala))
-        texto_alto = int(32 * escala)
-        (texto_ancho, _), _ = cv2.getTextSize("Ag", cv2.FONT_HERSHEY_SIMPLEX, 0.65 * escala, 1)
-        # El bloque cubre el ancho estimado y queda dentro del frame.
-        bloque_x1 = min(ancho - 1, x0 + max(texto_ancho * 7, int(len(etiqueta) * 13 * escala)))
-        cv2.rectangle(salida, (x0, texto_y), (bloque_x1, min(alto - 1, texto_y + texto_alto)), (25, 25, 25), -1)
-        try:
-            _texto_unicode(salida, etiqueta, (x0 + 5, texto_y + 3), escala, (255, 255, 255), 1)
-        except ImportError:
-            cv2.putText(salida, etiqueta.encode("ascii", "replace").decode(), (x0 + 5, texto_y + 23),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55 * escala, (255, 255, 255), 1, cv2.LINE_AA)
 
-    cv2.putText(salida, f"FPS: {max(0.0, float(fps)):.1f}", (12, max(24, int(30 * escala))),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7 * escala, (255, 255, 255), 2, cv2.LINE_AA)
-    if estado:
-        try:
-            _texto_unicode(salida, estado, (12, max(42, int(60 * escala))), escala,
-                           (0, 0, 255), 1)
-        except ImportError:
-            cv2.putText(salida, estado.encode("ascii", "replace").decode(), (12, 58),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.65 * escala, (0, 0, 255), 2, cv2.LINE_AA)
-    return salida
+def _escala_cv2(tam_px: int) -> float:
+    return tam_px / 30.0
+
+
+def _medir(texto: str, tam_px: int) -> int:
+    """Ancho en píxeles del texto."""
+    fuente = _fuente(tam_px)
+    if fuente is not None:
+        izq, _, der, _ = fuente.getbbox(texto)
+        return int(der - izq)
+    escala = _escala_cv2(tam_px)
+    (ancho, _), _ = cv2.getTextSize(_sin_acentos(texto), cv2.FONT_HERSHEY_SIMPLEX, escala, 2)
+    return int(ancho)
+
+
+def _escribir(frame: np.ndarray, textos: Sequence[Texto]) -> None:
+    """Dibuja todos los textos en una sola pasada (una conversión a PIL por frame)."""
+    if not textos:
+        return
+    if _fuente(textos[0][2]) is not None:
+        img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        dibujo = ImageDraw.Draw(img)
+        for texto, (x, y), tam, (b, g, r) in textos:
+            dibujo.text((x, y), texto, font=_fuente(tam), fill=(r, g, b))
+        frame[:] = cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
+        return
+    for texto, (x, y), tam, color in textos:
+        escala = _escala_cv2(tam)
+        cv2.putText(
+            frame, _sin_acentos(texto), (x, y + int(tam * 0.8)),
+            cv2.FONT_HERSHEY_SIMPLEX, escala, color, 2, cv2.LINE_AA,
+        )
+
+
+def _fondo_semitransparente(frame: np.ndarray, izq: int, sup: int, der: int, inf: int) -> None:
+    roi = frame[sup:inf, izq:der]
+    if roi.size == 0:
+        return
+    fondo = np.full_like(roi, COLOR_FONDO)
+    frame[sup:inf, izq:der] = cv2.addWeighted(fondo, OPACIDAD_FONDO, roi, 1 - OPACIDAD_FONDO, 0)
+
+
+def dibujar_overlay(frame_bgr: np.ndarray, detecciones: List[Dict[str, Any]], fps: float) -> np.ndarray:
+    """Dibuja sobre `frame_bgr` (in situ) y lo devuelve.
+
+    Cada detección: {"box": (x, y, w, h), "nombre": str, "profesion": str, "reconocido": bool}.
+    Recuadro verde = reconocido, naranja = invitado. La etiqueta va encima del rostro,
+    o debajo si no cabe arriba. El tamaño del texto escala con la resolución del frame.
+    """
+    alto_img, ancho_img = frame_bgr.shape[:2]
+    k = max(0.6, alto_img / 720.0)
+    tam_nombre = int(round(26 * k))
+    tam_profesion = int(round(21 * k))
+    pad = int(round(10 * k))
+    grosor = max(2, int(round(2 * k)))
+    textos: List[Texto] = []
+
+    for det in detecciones:
+        x, y, w, h = (int(v) for v in det["box"])
+        reconocido = bool(det.get("reconocido", False))
+        nombre = str(det.get("nombre", "") or "")
+        profesion = str(det.get("profesion", "") or "")
+        color = COLOR_RECONOCIDO if reconocido else COLOR_INVITADO
+
+        cv2.rectangle(frame_bgr, (x, y), (x + w, y + h), color, grosor)
+
+        lineas = [(nombre, tam_nombre, COLOR_NOMBRE)]
+        if profesion:
+            lineas.append((profesion, tam_profesion, COLOR_PROFESION))
+        alto_linea = [int(t * 1.3) for _, t, _ in lineas]
+        ancho_bloque = max(w, max(_medir(txt, t) for txt, t, _ in lineas) + 2 * pad)
+        alto_bloque = sum(alto_linea) + pad
+
+        izq = min(max(0, x), max(0, ancho_img - ancho_bloque))
+        sup = y - alto_bloque - grosor
+        if sup < 0:  # no cabe arriba: debajo del rostro
+            sup = min(y + h + grosor, alto_img - alto_bloque)
+        sup = max(0, sup)
+        der = min(ancho_img, izq + ancho_bloque)
+        inf = min(alto_img, sup + alto_bloque)
+
+        _fondo_semitransparente(frame_bgr, izq, sup, der, inf)
+        cv2.rectangle(frame_bgr, (izq, sup), (izq + max(3, grosor * 2), inf), color, -1)
+
+        ty = sup + pad // 2
+        for (txt, tam, col), alto in zip(lineas, alto_linea):
+            textos.append((txt, (izq + pad, ty), tam, col))
+            ty += alto
+
+    _escribir(frame_bgr, textos)
+
+    cv2.putText(
+        frame_bgr, f"FPS: {fps:.1f}", (int(15 * k), int(30 * k)),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.7 * k, (220, 220, 220), grosor, cv2.LINE_AA,
+    )
+    return frame_bgr
