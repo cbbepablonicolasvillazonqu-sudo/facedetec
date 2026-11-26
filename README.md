@@ -64,6 +64,36 @@ python main.py
 
 Teclas: `Q`/`ESC` salir · `R` recargar CSV y fotos · `F` alternar pantalla completa.
 
+## 3.1 Base de datos PostgreSQL (opcional)
+
+Por defecto el sistema usa `data/asistentes.csv` y `embeddings_cache.pkl`. Si defines `DATABASE_URL`
+usa PostgreSQL ([db/postgres.sql](db/postgres.sql)), que además guarda un **registro de asistencia**:
+quién pasó frente a la cámara y a qué hora (una pasada por persona cada `PASADA_COOLDOWN_S` = 60 s).
+
+| Tabla | Contenido |
+|---|---|
+| `asistentes` | nombre, profesión, archivo de foto, `activo` (desactivar sin borrar historial) |
+| `embeddings` | vector facial por asistente, modelo y detector (reemplaza `embeddings_cache.pkl`) |
+| `pasadas` | asistente, similitud y hora de cada pasada |
+| `resumen_asistencia` (vista) | pasadas, primera y última vez por asistente |
+
+```bash
+docker compose up -d                       # PostgreSQL 16 en 127.0.0.1:5432 (crea las tablas)
+# PowerShell: $env:DATABASE_URL="postgresql://facedetec:facedetec_local@127.0.0.1:5432/facedetec"
+export DATABASE_URL=postgresql://facedetec:facedetec_local@127.0.0.1:5432/facedetec
+
+python -m src.db_postgres importar data/asistentes.csv   # pasar los asistentes del CSV a la base
+python main.py                                            # reconoce y anota pasadas
+python -m src.db_postgres pasadas                         # resumen de asistencia
+python -m src.db_postgres asistentes                      # lista de asistentes
+```
+
+- Las fotos siguen en `fotos_registrados/`; la base guarda solo el nombre del archivo.
+- La base solo escucha en `127.0.0.1`: los vectores faciales son datos biométricos y no deben salir
+  de la laptop. La contraseña por defecto es para uso local; cámbiala con `POSTGRES_PASSWORD`.
+- Si la base falla durante el evento, la proyección sigue: solo se avisa por consola.
+- Borrar todo (incluido el historial): `docker compose down -v`.
+
 ## 4. Flujo de trabajo en GitHub
 
 1. Actualiza `main` antes de empezar:
@@ -88,8 +118,9 @@ Respeta estas firmas para que todo encaje sin conflictos. Importa `deepface` **d
 | `src/registrar.py` | Matt | `registrar_asistente(nombre, profesion, ruta_foto, csv_path, fotos_dir) -> dict` + CLI `--img` / `--stream` |
 | `src/face_detector.py` | Fabian | `detectar_rostros(frame_bgr) -> list[dict]` con `{"box": (x, y, w, h), "crop": np.ndarray, "confidence": float}` |
 | `src/embeddings_index.py` | Fabian | `cargar_indice(csv_path, fotos_dir, cache_path) -> list[dict]` con `{"id","nombre","profesion","foto","embedding"}` · `extraer_embedding(rostro_bgr) -> np.ndarray \| None` |
-| `src/matcher.py` | Fabian | `buscar_coincidencia(embedding, indice, umbral=0.38) -> {"reconocido": bool, "nombre": str, "profesion": str, "score": float}` |
-| `src/overlay_renderer.py` | Nicolas | `dibujar_overlay(frame_bgr, detecciones, fps) -> np.ndarray`; cada detección: `{"box", "nombre", "profesion", "reconocido"}` |
+| `src/matcher.py` | Fabian | `buscar_coincidencia(embedding, indice, umbral=0.38) -> {"reconocido": bool, "id", "nombre": str, "profesion": str, "score": float}` (`id` solo si reconocido) |
+| `src/overlay_renderer.py` | Nicolas | `dibujar_overlay(frame_bgr, detecciones, fps, estado=None) -> np.ndarray`; cada detección: `{"box", "id", "nombre", "profesion", "reconocido", "score"}` |
+| `src/db_postgres.py` | Nicolas | `conectar(url)` · `crear_esquema(conn)` · `cargar_indice_pg(conn, fotos_dir)` (mismo formato que `cargar_indice`) · `registrar_asistente(conn, nombre, profesion, foto)` · `importar_csv(conn, csv_path)` · `RegistroPasadas(conn).anotar(detecciones)` |
 | `src/display_output.py` | Nicolas | `configurar_ventana(nombre_ventana, fullscreen=True) -> None` · `mostrar_frame(nombre_ventana, frame_bgr) -> int` |
 | `src/performance.py` | Nicolas | `ControladorRitmo(cada_n_frames=3)` con `.debe_procesar() -> bool` y `.tick() -> float` (FPS suavizado) |
 | `main.py` | Nicolas | Orquesta el ciclo: captura → detección → embedding → matching → overlay → pantalla |
@@ -98,4 +129,7 @@ Respeta estas firmas para que todo encaje sin conflictos. Importa `deepface` **d
 
 ```bash
 pytest
+# Incluir los tests de PostgreSQL (usan schemas temporales, no tocan tus datos):
+docker compose up -d
+TEST_DATABASE_URL=postgresql://facedetec:facedetec_local@127.0.0.1:5432/facedetec pytest
 ```

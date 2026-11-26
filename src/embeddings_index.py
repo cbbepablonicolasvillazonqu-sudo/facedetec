@@ -59,6 +59,25 @@ def extraer_embedding(rostro_bgr: np.ndarray) -> Optional[np.ndarray]:
         return None
 
 
+def vector_de_foto(ruta: str, nombre: str = "asistente") -> Optional[np.ndarray]:
+    """Foto de registro -> cara más grande -> vector facial. None (con aviso) si algo falla.
+
+    Lo usan tanto el modo CSV (cargar_indice) como el modo PostgreSQL (src/db_postgres.py).
+    """
+    imagen = _leer_imagen(ruta)
+    if imagen is None:
+        print(f"[AVISO] No se pudo abrir la foto: {ruta}")
+        return None
+    rostro = _rostro_principal(imagen)
+    if rostro is None:
+        print(
+            f"[AVISO] No se detectó un rostro en la foto de {nombre}: {ruta} "
+            "(usa una foto frontal y bien iluminada)"
+        )
+        return None
+    return extraer_embedding(rostro)
+
+
 def _guardar_cache(cache_path: str, cache: Dict[str, Any]) -> None:
     carpeta = os.path.dirname(os.path.abspath(cache_path))
     os.makedirs(carpeta, exist_ok=True)
@@ -119,18 +138,7 @@ def cargar_indice(csv_path: str, fotos_dir: str, cache_path: str) -> List[Dict[s
             except (TypeError, ValueError):
                 embedding = None
         if embedding is None:
-            imagen = _leer_imagen(ruta)
-            if imagen is None:
-                print(f"[AVISO] No se pudo abrir la foto: {ruta}")
-                continue
-            rostro = _rostro_principal(imagen)
-            if rostro is None:
-                print(
-                    f"[AVISO] No se detectó un rostro en la foto de "
-                    f"{fila.get('nombre', 'asistente')}: {ruta} (usa una foto frontal y bien iluminada)"
-                )
-                continue
-            embedding = extraer_embedding(rostro)
+            embedding = vector_de_foto(ruta, fila.get("nombre", "asistente"))
             if embedding is None:
                 continue
             entrada_cache[clave] = {

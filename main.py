@@ -5,10 +5,13 @@ Uso:
     STREAM_URL=0 python main.py          # webcam de la laptop
 
 Teclas: Q/ESC salir · R recargar CSV y fotos · F alternar pantalla completa.
+
+Con DATABASE_URL definida usa PostgreSQL (asistentes, vectores y registro de pasadas)
+en lugar de data/asistentes.csv. Ver README, sección "Base de datos PostgreSQL".
 """
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
@@ -28,7 +31,14 @@ TECLAS_SALIR = (ord("q"), ord("Q"), 27)
 ESTADO_SIN_CONEXION = "Sin conexión — reconectando…"
 
 
-def cargar_base() -> List[Dict[str, Any]]:
+def cargar_base(conn: Optional[Any] = None) -> List[Dict[str, Any]]:
+    """Carga asistentes y vectores: de PostgreSQL si hay conexión, si no del CSV."""
+    if conn is not None:
+        from src.db_postgres import cargar_indice_pg
+
+        indice = cargar_indice_pg(conn, config.FOTOS_DIR)
+        print(f"[LISTO] {len(indice)} asistentes cargados desde PostgreSQL.")
+        return indice
     if not os.path.isfile(config.CSV_PATH):
         print(
             f"[AVISO] No existe {config.CSV_PATH}. Copia data/asistentes.example.csv a "
@@ -53,9 +63,11 @@ def reconocer(frame: np.ndarray, indice: List[Dict[str, Any]]) -> List[Dict[str,
         detecciones.append(
             {
                 "box": rostro["box"],
+                "id": resultado.get("id") if reconocido else None,
                 "nombre": resultado.get("nombre") or config.ETIQUETA_DESCONOCIDO,
                 "profesion": resultado.get("profesion", "") if reconocido else "",
                 "reconocido": reconocido,
+                "score": resultado.get("score"),
             }
         )
     return detecciones
@@ -72,7 +84,15 @@ def conectar(fuente: str) -> cv2.VideoCapture:
 
 
 def ejecutar() -> None:
-    indice = cargar_base()
+    conn = None
+    registro = None
+    if config.DATABASE_URL:
+        from src.db_postgres import RegistroPasadas, conectar as conectar_db, crear_esquema
+
+        conn = conectar_db()
+        crear_esquema(conn)
+        registro = RegistroPasadas(conn)
+    indice = cargar_base(conn)
     cap = conectar(config.STREAM_URL)
     configurar_ventana(config.VENTANA_NOMBRE, config.FULLSCREEN)
     ritmo = ControladorRitmo(config.DETECTAR_CADA_N_FRAMES)
@@ -108,6 +128,8 @@ def ejecutar() -> None:
             if ritmo.debe_procesar():
                 try:
                     detecciones = reconocer(frame, indice)
+                    if registro is not None:
+                        registro.anotar(detecciones)
                 except NotImplementedError:
                     raise
                 except Exception as exc:  # un frame malo no debe tumbar la proyección
@@ -118,12 +140,14 @@ def ejecutar() -> None:
             if tecla in TECLAS_SALIR:
                 break
             if tecla in (ord("r"), ord("R")):
-                indice = cargar_base()
+                indice = cargar_base(conn)
             elif tecla in (ord("f"), ord("F")):
                 alternar_fullscreen(config.VENTANA_NOMBRE)
     finally:
         cap.release()
         cerrar_ventanas()
+        if conn is not None:
+            conn.close()
 
 
 if __name__ == "__main__":
