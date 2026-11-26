@@ -21,6 +21,7 @@ COLOR_INVITADO = (0, 165, 255)
 COLOR_FONDO = (20, 20, 20)
 COLOR_NOMBRE = (255, 255, 255)
 COLOR_PROFESION = (255, 235, 130)
+COLOR_ESTADO = (30, 30, 200)
 OPACIDAD_FONDO = 0.75
 
 FUENTES = (
@@ -85,20 +86,28 @@ def _escribir(frame: np.ndarray, textos: Sequence[Texto]) -> None:
         )
 
 
-def _fondo_semitransparente(frame: np.ndarray, izq: int, sup: int, der: int, inf: int) -> None:
+def _fondo_semitransparente(
+    frame: np.ndarray, izq: int, sup: int, der: int, inf: int, color: Tuple[int, int, int] = COLOR_FONDO
+) -> None:
     roi = frame[sup:inf, izq:der]
     if roi.size == 0:
         return
-    fondo = np.full_like(roi, COLOR_FONDO)
+    fondo = np.full_like(roi, color)
     frame[sup:inf, izq:der] = cv2.addWeighted(fondo, OPACIDAD_FONDO, roi, 1 - OPACIDAD_FONDO, 0)
 
 
-def dibujar_overlay(frame_bgr: np.ndarray, detecciones: List[Dict[str, Any]], fps: float) -> np.ndarray:
+def dibujar_overlay(
+    frame_bgr: np.ndarray,
+    detecciones: List[Dict[str, Any]],
+    fps: float,
+    estado: Optional[str] = None,
+) -> np.ndarray:
     """Dibuja sobre `frame_bgr` (in situ) y lo devuelve.
 
     Cada detección: {"box": (x, y, w, h), "nombre": str, "profesion": str, "reconocido": bool}.
     Recuadro verde = reconocido, naranja = invitado. La etiqueta va encima del rostro,
     o debajo si no cabe arriba. El tamaño del texto escala con la resolución del frame.
+    `estado` (p. ej. "Sin conexión — reconectando…") se muestra en una franja roja arriba.
     """
     alto_img, ancho_img = frame_bgr.shape[:2]
     k = max(0.6, alto_img / 720.0)
@@ -140,10 +149,17 @@ def dibujar_overlay(frame_bgr: np.ndarray, detecciones: List[Dict[str, Any]], fp
             textos.append((txt, (izq + pad, ty), tam, col))
             ty += alto
 
+    y_fps = int(30 * k)
+    if estado:
+        alto_franja = int(tam_nombre * 1.3) + pad
+        _fondo_semitransparente(frame_bgr, 0, 0, ancho_img, alto_franja, COLOR_ESTADO)
+        textos.append((estado, (pad, pad // 2), tam_nombre, COLOR_NOMBRE))
+        y_fps += alto_franja
+
     _escribir(frame_bgr, textos)
 
     cv2.putText(
-        frame_bgr, f"FPS: {fps:.1f}", (int(15 * k), int(30 * k)),
+        frame_bgr, f"FPS: {fps:.1f}", (int(15 * k), y_fps),
         cv2.FONT_HERSHEY_SIMPLEX, 0.7 * k, (220, 220, 220), grosor, cv2.LINE_AA,
     )
     return frame_bgr

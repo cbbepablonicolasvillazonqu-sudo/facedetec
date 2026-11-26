@@ -22,8 +22,10 @@ from src.overlay_renderer import dibujar_overlay
 from src.performance import ControladorRitmo
 from src.stream_capture import abrir_stream, leer_frame
 
+FALLOS_PARA_AVISO = 10  # frames perdidos seguidos antes de mostrar "Sin conexión"
 FALLOS_ANTES_DE_RECONECTAR = 30  # ~1 s de frames perdidos
 TECLAS_SALIR = (ord("q"), ord("Q"), 27)
+ESTADO_SIN_CONEXION = "Sin conexión — reconectando…"
 
 
 def cargar_base() -> List[Dict[str, Any]]:
@@ -75,6 +77,7 @@ def ejecutar() -> None:
     configurar_ventana(config.VENTANA_NOMBRE, config.FULLSCREEN)
     ritmo = ControladorRitmo(config.DETECTAR_CADA_N_FRAMES)
     detecciones: List[Dict[str, Any]] = []
+    ultimo_frame = None  # copia limpia del último frame bueno, para el aviso de desconexión
     fallos = 0
     print("Sistema iniciado. [Q]/[ESC] salir · [R] recargar base · [F] pantalla completa.")
 
@@ -83,6 +86,13 @@ def ejecutar() -> None:
             ok, frame = leer_frame(cap)
             if not ok or frame is None:
                 fallos += 1
+                if fallos >= FALLOS_PARA_AVISO and ultimo_frame is not None:
+                    aviso = dibujar_overlay(ultimo_frame.copy(), [], ritmo.fps, estado=ESTADO_SIN_CONEXION)
+                    tecla = mostrar_frame(config.VENTANA_NOMBRE, aviso)
+                else:
+                    tecla = cv2.waitKey(1) & 0xFF
+                if tecla in TECLAS_SALIR:
+                    break
                 if fallos >= FALLOS_ANTES_DE_RECONECTAR:
                     print("[AVISO] Stream perdido, reconectando...")
                     cap.release()
@@ -91,10 +101,9 @@ def ejecutar() -> None:
                     fallos = 0
                 else:
                     time.sleep(0.03)
-                if (cv2.waitKey(1) & 0xFF) in TECLAS_SALIR:
-                    break
                 continue
             fallos = 0
+            ultimo_frame = frame.copy()
 
             if ritmo.debe_procesar():
                 try:
