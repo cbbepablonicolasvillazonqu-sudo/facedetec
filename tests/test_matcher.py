@@ -4,9 +4,11 @@ from src.matcher import buscar_coincidencia
 
 
 def test_reconoce_vector_identico_y_devuelve_similitud():
-    indice = [{"nombre": "Ana García", "profesion": "Arquitecta", "embedding": np.array([1, 0])}]
+    indice = [{"id": 7, "nombre": "Ana García", "profesion": "Arquitecta", "embedding": np.array([1, 0])}]
     resultado = buscar_coincidencia(np.array([1, 0]), indice)
-    assert resultado == {"reconocido": True, "nombre": "Ana García", "profesion": "Arquitecta", "score": 1.0}
+    assert resultado == {
+        "reconocido": True, "id": 7, "nombre": "Ana García", "profesion": "Arquitecta", "score": 1.0,
+    }
 
 
 def test_distancia_sobre_umbral_es_desconocida():

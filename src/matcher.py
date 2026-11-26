@@ -44,7 +44,7 @@ def buscar_coincidencia(
         return {"reconocido": False, "nombre": desconocido, "profesion": "", "score": score}
     if mejor_distancia <= umbral:
         return {
-            "reconocido": True, "nombre": mejor_persona.get("nombre", ""),
+            "reconocido": True, "id": mejor_persona.get("id"), "nombre": mejor_persona.get("nombre", ""),
             "profesion": mejor_persona.get("profesion", ""), "score": 1.0 - mejor_distancia,
         }
     return {"reconocido": False, "nombre": desconocido, "profesion": "", "score": mejor_distancia}

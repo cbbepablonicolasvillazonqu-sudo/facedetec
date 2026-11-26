@@ -10,6 +10,12 @@ CSV_PATH = os.path.join(BASE_DIR, "data", "asistentes.csv")
 FOTOS_DIR = os.path.join(BASE_DIR, "fotos_registrados")
 CACHE_PATH = os.path.join(BASE_DIR, "embeddings_cache.pkl")
 
+# Base de datos (opcional). Vacío = modo CSV (data/asistentes.csv + embeddings_cache.pkl).
+# Con PostgreSQL (docker compose up -d):
+#   DATABASE_URL=postgresql://facedetec:facedetec_local@127.0.0.1:5432/facedetec
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+PASADA_COOLDOWN_S = int(os.environ.get("PASADA_COOLDOWN_S", "60"))  # 1 pasada por persona cada N s
+
 # Fuente de video:
 # - IP Webcam (Android): "http://<IP_CELULAR>:8080/video"
 # - RTSP: "rtsp://<IP_CELULAR>:8554/h264"

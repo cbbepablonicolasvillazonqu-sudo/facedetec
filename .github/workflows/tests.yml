@@ -8,6 +8,23 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    # PostgreSQL real para tests/test_db_postgres.py (en local se saltan sin TEST_DATABASE_URL).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://test:test@localhost:5432/test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,6 +32,5 @@ jobs:
           python-version: "3.12"
       # Solo dependencias ligeras: los módulos importan deepface dentro de las funciones,
       # así los tests no necesitan TensorFlow.
-      - run: pip install opencv-python-headless numpy pandas pillow pytest
-      - name: pytest (código 5 = aún no hay tests)
-        run: pytest -q || [ $? -eq 5 ]
+      - run: pip install opencv-python-headless numpy pandas pillow "psycopg[binary]>=3.1" pytest
+      - run: pytest -q -rs

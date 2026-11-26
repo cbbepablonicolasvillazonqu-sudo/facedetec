@@ -16,7 +16,7 @@ def test_reconocer_combina_detector_embedding_y_matcher(monkeypatch):
     def matcher_falso(emb, indice, umbral):
         assert umbral == config.UMBRAL_DISTANCIA_COSENO
         if emb[0] == 0:
-            return {"reconocido": True, "nombre": "Ana García", "profesion": "Arquitecta", "score": 0.9}
+            return {"reconocido": True, "id": 3, "nombre": "Ana García", "profesion": "Arquitecta", "score": 0.9}
         return {"reconocido": False, "nombre": config.ETIQUETA_DESCONOCIDO, "profesion": "", "score": 0.7}
 
     monkeypatch.setattr(main, "buscar_coincidencia", matcher_falso)
@@ -24,8 +24,10 @@ def test_reconocer_combina_detector_embedding_y_matcher(monkeypatch):
     salida = main.reconocer(np.zeros((200, 200, 3), np.uint8), indice=[{"nombre": "Ana García"}])
 
     assert salida == [
-        {"box": (10, 10, 50, 50), "nombre": "Ana García", "profesion": "Arquitecta", "reconocido": True},
-        {"box": (100, 10, 50, 50), "nombre": config.ETIQUETA_DESCONOCIDO, "profesion": "", "reconocido": False},
+        {"box": (10, 10, 50, 50), "id": 3, "nombre": "Ana García", "profesion": "Arquitecta",
+         "reconocido": True, "score": 0.9},
+        {"box": (100, 10, 50, 50), "id": None, "nombre": config.ETIQUETA_DESCONOCIDO, "profesion": "",
+         "reconocido": False, "score": 0.7},
     ]
 
 
