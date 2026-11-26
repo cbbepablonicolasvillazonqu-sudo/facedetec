@@ -6,6 +6,35 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from src.face_detector import detectar_rostros
+
+# Versión 2: los vectores se calculan sobre el recorte de la cara (antes, foto completa).
+# Subirla invalida cachés antiguas incompatibles.
+VERSION_CACHE = 2
+
+
+def _leer_imagen(ruta: str) -> Optional[np.ndarray]:
+    """Lee una imagen BGR; soporta rutas con tildes/ñ en Windows (cv2.imread no)."""
+    import cv2
+
+    try:
+        datos = np.fromfile(ruta, dtype=np.uint8)
+        return cv2.imdecode(datos, cv2.IMREAD_COLOR) if datos.size else None
+    except Exception:
+        return None
+
+
+def _rostro_principal(imagen: np.ndarray) -> Optional[np.ndarray]:
+    """Recorte de la cara más grande de una foto de registro, o None si no hay cara.
+
+    Se usa el mismo detector que en vivo para que los vectores sean comparables.
+    """
+    rostros = detectar_rostros(imagen)
+    if not rostros:
+        return None
+    mayor = max(rostros, key=lambda r: int(r["box"][2]) * int(r["box"][3]))
+    return mayor["crop"]
+
 
 def extraer_embedding(rostro_bgr: np.ndarray) -> Optional[np.ndarray]:
     """Calcula un embedding float32 para un recorte de rostro; devuelve None si falla."""
@@ -49,11 +78,11 @@ def cargar_indice(csv_path: str, fotos_dir: str, cache_path: str) -> List[Dict[s
     import csv
     from src import config
 
-    cache: Dict[str, Any] = {"version": 1, "entries": {}}
+    cache: Dict[str, Any] = {"version": VERSION_CACHE, "entries": {}}
     try:
         with open(cache_path, "rb") as archivo:
             cargada = pickle.load(archivo)
-        if (isinstance(cargada, dict) and cargada.get("version") == 1
+        if (isinstance(cargada, dict) and cargada.get("version") == VERSION_CACHE
                 and isinstance(cargada.get("entries"), dict)):
             cache = cargada
     except (OSError, EOFError, pickle.PickleError, AttributeError, ValueError):
@@ -90,15 +119,18 @@ def cargar_indice(csv_path: str, fotos_dir: str, cache_path: str) -> List[Dict[s
             except (TypeError, ValueError):
                 embedding = None
         if embedding is None:
-            try:
-                import cv2
-                imagen = cv2.imread(ruta)
-            except Exception:
-                imagen = None
+            imagen = _leer_imagen(ruta)
             if imagen is None:
                 print(f"[AVISO] No se pudo abrir la foto: {ruta}")
                 continue
-            embedding = extraer_embedding(imagen)
+            rostro = _rostro_principal(imagen)
+            if rostro is None:
+                print(
+                    f"[AVISO] No se detectó un rostro en la foto de "
+                    f"{fila.get('nombre', 'asistente')}: {ruta} (usa una foto frontal y bien iluminada)"
+                )
+                continue
+            embedding = extraer_embedding(rostro)
             if embedding is None:
                 continue
             entrada_cache[clave] = {
